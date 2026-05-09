@@ -1,6 +1,9 @@
 import logging
+import os
+import shutil
 import socket
 import struct
+import subprocess
 import sys
 import time
 from io import BytesIO
@@ -64,6 +67,7 @@ class MujocoEnv(Environment):
         else:
             self.visualizer = None
 
+        self._init_viewer_recording()
         self._init_camera_capture()
 
         self.last_time = time.time()
@@ -106,6 +110,179 @@ class MujocoEnv(Environment):
             qvel_indices.append(int(self.model.jnt_dofadr[joint_id]))
 
         return np.asarray(qpos_indices, dtype=np.int32), np.asarray(qvel_indices, dtype=np.int32)
+
+    def _env_flag(self, name: str, default: bool) -> bool:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    def _init_viewer_recording(self):
+        self.viewer_record_enabled = self._env_flag(
+            "MUJOCO_VIEWER_RECORD",
+            bool(getattr(self.cfg_env, "viewer_record_enabled", False)),
+        )
+        self.viewer_record_writer = None
+        self.viewer_record_path = None
+        self.viewer_record_backend = None
+        self.viewer_record_width = 0
+        self.viewer_record_height = 0
+        self.viewer_record_frame_count = 0
+        self.viewer_record_next_time = time.time()
+        self.viewer_record_fps = float(
+            os.getenv(
+                "MUJOCO_VIEWER_RECORD_FPS",
+                str(getattr(self.cfg_env, "viewer_record_fps", 30.0)),
+            )
+        )
+        self.viewer_record_period = 1.0 / max(self.viewer_record_fps, 1e-3)
+
+        if not self.viewer_record_enabled:
+            return
+
+        output_dir = Path(
+            os.getenv(
+                "MUJOCO_VIEWER_RECORD_DIR",
+                str(getattr(self.cfg_env, "viewer_record_output_dir", "logs/videos")),
+            )
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.viewer_record_path = output_dir / f"viewer_{time.strftime('%Y%m%d_%H%M%S')}.mp4"
+
+        writer_error = None
+        opencv_error = None
+        try:
+            import imageio.v2 as imageio
+
+            self.viewer_record_writer = imageio.get_writer(
+                self.viewer_record_path.as_posix(),
+                fps=self.viewer_record_fps,
+                macro_block_size=None,
+            )
+            self.viewer_record_backend = "imageio"
+        except Exception as e:
+            writer_error = e
+
+        if self.viewer_record_writer is None:
+            try:
+                import cv2
+
+                width, height = self.viewer.viewport.width, self.viewer.viewport.height
+                if width <= 0 or height <= 0:
+                    width, height = 1200, 900
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                self.viewer_record_writer = cv2.VideoWriter(
+                    self.viewer_record_path.as_posix(),
+                    fourcc,
+                    self.viewer_record_fps,
+                    (int(width), int(height)),
+                )
+                if not self.viewer_record_writer.isOpened():
+                    self.viewer_record_writer.release()
+                    self.viewer_record_writer = None
+                    raise RuntimeError("OpenCV VideoWriter failed to open")
+                self.viewer_record_backend = "opencv"
+            except Exception as e:
+                opencv_error = e
+
+        if self.viewer_record_writer is None:
+            try:
+                ffmpeg_bin = os.getenv("FFMPEG") or shutil.which("ffmpeg")
+                if ffmpeg_bin is None:
+                    raise RuntimeError("ffmpeg not found on PATH")
+
+                width, height = self.viewer.viewport.width, self.viewer.viewport.height
+                if width <= 0 or height <= 0:
+                    width, height = 1200, 900
+                width = int(width) - (int(width) % 2)
+                height = int(height) - (int(height) % 2)
+                self.viewer_record_width = width
+                self.viewer_record_height = height
+
+                self.viewer_record_writer = subprocess.Popen(
+                    [
+                        ffmpeg_bin,
+                        "-y",
+                        "-f",
+                        "rawvideo",
+                        "-vcodec",
+                        "rawvideo",
+                        "-pix_fmt",
+                        "rgb24",
+                        "-s",
+                        f"{width}x{height}",
+                        "-r",
+                        str(self.viewer_record_fps),
+                        "-i",
+                        "-",
+                        "-an",
+                        "-vcodec",
+                        "libx264",
+                        "-preset",
+                        "ultrafast",
+                        "-tune",
+                        "zerolatency",
+                        "-pix_fmt",
+                        "yuv420p",
+                        self.viewer_record_path.as_posix(),
+                    ],
+                    stdin=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+                self.viewer_record_backend = "ffmpeg"
+            except Exception as e:
+                logger.warning(
+                    "Viewer recording disabled: imageio=%s, opencv=%s, ffmpeg=%s",
+                    writer_error,
+                    opencv_error,
+                    e,
+                )
+                self.viewer_record_enabled = False
+                return
+
+        print(
+            f"[viewer record] saving {self.viewer_record_path} "
+            f"({self.viewer_record_backend})",
+            flush=True,
+        )
+
+    def _maybe_record_viewer_frame(self):
+        if not self.viewer_record_enabled or self.viewer_record_writer is None:
+            return
+
+        now = time.time()
+        if now < self.viewer_record_next_time:
+            return
+        self.viewer_record_next_time = now + self.viewer_record_period
+
+        width = int(self.viewer.viewport.width)
+        height = int(self.viewer.viewport.height)
+        if width <= 0 or height <= 0:
+            return
+
+        img = np.zeros((height, width, 3), dtype=np.uint8)
+        mujoco.mjr_readPixels(img, None, self.viewer.viewport, self.viewer.ctx)
+        img = np.ascontiguousarray(np.flipud(img))
+        if self.viewer_record_backend == "opencv":
+            self.viewer_record_writer.write(img[:, :, ::-1])
+            self.viewer_record_frame_count += 1
+        elif self.viewer_record_backend == "ffmpeg":
+            if self.viewer_record_writer.poll() is not None or self.viewer_record_writer.stdin is None:
+                logger.warning("Viewer recording stopped: ffmpeg exited.")
+                self.viewer_record_enabled = False
+                return
+            img = img[: self.viewer_record_height, : self.viewer_record_width]
+            if img.shape[:2] != (self.viewer_record_height, self.viewer_record_width):
+                return
+            try:
+                self.viewer_record_writer.stdin.write(img.tobytes())
+                self.viewer_record_frame_count += 1
+            except OSError as e:
+                logger.warning("Viewer recording stopped: ffmpeg write failed: %s", e)
+                self.viewer_record_enabled = False
+        else:
+            self.viewer_record_writer.append_data(img)
+            self.viewer_record_frame_count += 1
 
     def _init_camera_capture(self):
         self.camera_capture_enabled = bool(self.cfg_env.camera_capture_enabled)
@@ -311,6 +488,7 @@ class MujocoEnv(Environment):
         if self.viewer.is_alive:
             mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
             self.viewer.render()
+            self._maybe_record_viewer_frame()
 
         for _ in range(self.sim_decimation):
             torque = (pd_target - self.dof_pos) * self.stiffness - self.dof_vel * self.damping
@@ -324,6 +502,30 @@ class MujocoEnv(Environment):
         self._maybe_capture_camera()
 
     def shutdown(self):
+        if self.viewer_record_writer is not None:
+            if self.viewer_record_backend == "opencv":
+                self.viewer_record_writer.release()
+            elif self.viewer_record_backend == "ffmpeg":
+                if self.viewer_record_writer.stdin is not None:
+                    self.viewer_record_writer.stdin.close()
+                try:
+                    close_timeout = float(os.getenv("MUJOCO_VIEWER_RECORD_CLOSE_TIMEOUT", "30.0"))
+                    self.viewer_record_writer.wait(timeout=close_timeout)
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        "Viewer recording did not finalize within timeout; video may be invalid."
+                    )
+                    self.viewer_record_writer.kill()
+                    self.viewer_record_writer.wait()
+            else:
+                self.viewer_record_writer.close()
+            self.viewer_record_writer = None
+            if self.viewer_record_path is not None:
+                print(
+                    f"[viewer record] saved {self.viewer_record_path} "
+                    f"({self.viewer_record_frame_count} frames)",
+                    flush=True,
+                )
         if self.camera_renderer is not None and hasattr(self.camera_renderer, "close"):
             self.camera_renderer.close()
         if self.camera_udp_sock is not None:

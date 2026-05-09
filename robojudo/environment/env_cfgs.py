@@ -42,3 +42,7 @@ class MujocoEnvCfg(EnvCfg):
     camera_udp_port: int = 15002
     camera_jpeg_quality: int = 75
     camera_udp_max_chunk_size: int = 8192
+
+    viewer_record_enabled: bool = False
+    viewer_record_fps: float = 30.0
+    viewer_record_output_dir: str = "/Users/ajayvikram/Desktop/Duke/Robotics/FailureRecovery/videos"

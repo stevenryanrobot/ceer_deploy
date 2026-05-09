@@ -62,25 +62,29 @@ def main():
     if not cfg.env.is_sim:
         pipeline.prepare()
 
-    while True:
-        time_start = time.time()
-        pipeline.step()
-        time_end = time.time()
-        time_diff = time_end - time_start
+    try:
+        while True:
+            time_start = time.time()
+            pipeline.step()
+            time_end = time.time()
+            time_diff = time_end - time_start
 
-        # keep the pipeline running at the desired frequency
-        if not cfg.run_fullspeed:
-            time_diff = pipeline.dt - time_diff
-            if time_diff > 0:
-                time.sleep(time_diff)
-            else:
-                if not cfg.env.is_sim:
-                    logger.error(f"Warning: frame drop -> {time_diff}")
-                    if time_diff < -0.2:
-                        logger.critical("Exiting due to excessive frame drop")
-                        pipeline.env.shutdown()
-                        time.sleep(10)
-                        break
+            # keep the pipeline running at the desired frequency
+            if not cfg.run_fullspeed:
+                time_diff = pipeline.dt - time_diff
+                if time_diff > 0:
+                    time.sleep(time_diff)
+                else:
+                    if not cfg.env.is_sim:
+                        logger.error(f"Warning: frame drop -> {time_diff}")
+                        if time_diff < -0.2:
+                            logger.critical("Exiting due to excessive frame drop")
+                            time.sleep(10)
+                            break
+    except KeyboardInterrupt:
+        logger.info("Interrupted, shutting down pipeline.")
+    finally:
+        pipeline.env.shutdown()
 
 
 if __name__ == "__main__":

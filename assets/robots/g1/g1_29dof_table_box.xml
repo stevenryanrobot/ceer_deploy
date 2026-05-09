@@ -1,7 +1,7 @@
 <mujoco model="g1_29dof_rev_1_0">
   <compiler angle="radian" meshdir="meshes"/>
 
-  <!-- <option timestep='0.001' iterations='50' solver='PGS' gravity='0 0 -9.81'></option> -->
+  <option iterations="100" solver="Newton" cone="elliptic" gravity="0 0 -9.81"/>
   <default>
     <joint damping="0.001" armature="0.01" frictionloss="0.1"/>
   </default>
@@ -147,7 +147,7 @@
             <geom pos="0.0039635 0 -0.044" quat="1 0 0 0" type="mesh" rgba="0.2 0.2 0.2 1" mesh="logo_link"/>
             <geom pos="0.0039635 0 -0.044" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1" mesh="head_link"/>
             <geom pos="0.0039635 0 -0.044" type="mesh" rgba="0.2 0.2 0.2 1" mesh="head_link"/>
-            <camera name="robot_pov" pos="0.10 0 0.12" xyaxes="0 -1 0 0 0 1" fovy="75"/>
+            <camera name="robot_pov" pos="0.10 0 0.12" xyaxes="0 -1 0 0.259 0 0.966" fovy="75"/>
             <site name="imu_in_torso" size="0.01" pos="-0.03959 -0.00224 0.14792"/>
             <body name="left_shoulder_pitch_link" pos="0.0039563 0.10022 0.24778" quat="0.990264 0.139201 1.38722e-05 -9.86868e-05">
               <inertial pos="0 0.035892 -0.011628" quat="0.654152 0.0130458 -0.326267 0.68225" mass="0.718" diaginertia="0.000465864 0.000432842 0.000406394"/>
@@ -184,7 +184,7 @@
                           <joint name="left_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.61443 1.61443" actuatorfrcrange="-5 5"/>
                           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="left_wrist_yaw_link"/>
                           <geom type="mesh" rgba="0.7 0.7 0.7 1" mesh="left_wrist_yaw_link"/>
-                          <geom pos="0.0415 0.003 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="left_rubber_hand"/>
+                          <geom name="left_rubber_hand_collision" pos="0.0415 0.003 0" quat="1 0 0 0" type="mesh" contype="1" conaffinity="1" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="left_rubber_hand" friction="8.0 0.8 0.08" condim="4"/>
                         </body>
                       </body>
                     </body>
@@ -227,7 +227,7 @@
                           <joint name="right_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.61443 1.61443" actuatorfrcrange="-5 5"/>
                           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="right_wrist_yaw_link"/>
                           <geom type="mesh" rgba="0.7 0.7 0.7 1" mesh="right_wrist_yaw_link"/>
-                          <geom pos="0.0415 -0.003 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="right_rubber_hand"/>
+                          <geom name="right_rubber_hand_collision" pos="0.0415 -0.003 0" quat="1 0 0 0" type="mesh" contype="1" conaffinity="1" group="1" density="0" rgba="0.7 0.7 0.7 1" mesh="right_rubber_hand" friction="8.0 0.8 0.08" condim="4"/>
                         </body>
                       </body>
                     </body>
@@ -296,6 +296,11 @@
   <worldbody>
     <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane" friction="1.5 0.02 0.002" condim="4"/>
+
+    <!-- fixed monitor cameras for table-object-hand debugging -->
+    <camera name="top_down" pos="1.05 0 1.75" xyaxes="1 0 0 0 1 0" fovy="55"/>
+    <camera name="side_view" pos="1.05 -1.25 0.95" xyaxes="1 0 0 0 0.119 0.993" fovy="55"/>
+
     <!-- table: static collision object -->
     <body name="table" pos="1.2 0 0.65">
       <geom name="table_top"
@@ -336,14 +341,16 @@
     </body>
 
     <!-- box: dynamic object on table -->
-    <body name="box" pos="0.85 0 0.76">
+    <body name="box" pos="0.92 0 0.81">
       <freejoint/>
       <geom name="box_geom"
             type="box"
-            size="0.05 0.05 0.05"
-            mass="0.15"
+            size="0.10 0.10 0.10"
+            mass="0.25"
             rgba="0.9 0.15 0.1 1"
-            friction="1.2 0.02 0.002"
+            contype="1"
+            conaffinity="1"
+            friction="6.0 0.5 0.05"
             condim="4"/>
     </body>
     <body name="viz_root_target" mocap="true" pos="0 0 -10">
