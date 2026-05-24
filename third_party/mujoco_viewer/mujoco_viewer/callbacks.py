@@ -300,7 +300,7 @@ class Callbacks:
                 if selbody >= 0:
                     # record selection
                     self.pert.select = selbody
-                    self.pert.skinselect = selskin
+                    self.pert.skinselect = int(selskin.item())
                     # compute localpos
                     vec = selpnt.flatten() - self.data.xpos[selbody]
                     mat = self.data.xmat[selbody].reshape(3, 3)
