@@ -32,7 +32,28 @@ def parse_args():
         default="g1_my_rl",
         help="Name of the config class to use",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--policy-suffix",
+        type=str,
+        default=None,
+        help="Load policy_<suffix>.pt and vecnorm_params_<suffix>.pt",
+    )
+    args, unknown = parser.parse_known_args()
+
+    suffix_flags = []
+    for item in unknown:
+        if item.startswith("--") and len(item) > 2:
+            suffix_flags.append(item[2:])
+        else:
+            parser.error(f"unrecognized argument: {item}")
+
+    if args.policy_suffix is not None and suffix_flags:
+        parser.error("use either --policy-suffix or one shortcut suffix flag like --gt, not both")
+    if len(suffix_flags) > 1:
+        parser.error(f"expected at most one shortcut suffix flag, got: {', '.join('--' + x for x in suffix_flags)}")
+    if suffix_flags:
+        args.policy_suffix = suffix_flags[0]
+
     return args
 
 
@@ -42,6 +63,16 @@ def main():
     config_manager = ConfigManager(config_name=args.config)
 
     cfg: RlPipelineCfg = config_manager.get_cfg()
+    if args.policy_suffix:
+        if not hasattr(cfg.policy, "policy_suffix"):
+            raise AttributeError(f"Policy config {type(cfg.policy).__name__} does not support policy_suffix")
+        cfg.policy.policy_suffix = args.policy_suffix
+        print(
+            "[run_pipeline] policy suffix="
+            f"{args.policy_suffix!r}; policy_file={cfg.policy.policy_file}; "
+            f"vecnorm_file={getattr(cfg.policy, 'vecnorm_file', None)}",
+            flush=True,
+        )
     if hasattr(cfg, "env"):
         print(
             "[run_pipeline] env="

@@ -291,6 +291,77 @@ class MyCustomPolicy(Policy):
     """
     cfg_policy: PolicyCfg
 
+    def _infer_model_obs_dim(self) -> int | None:
+        try:
+            state = self.model.state_dict()
+        except Exception:
+            return None
+
+        for key in ("adapt.0.weight", "module.adapt.0.weight"):
+            weight = state.get(key)
+            if isinstance(weight, torch.Tensor) and weight.ndim == 2:
+                return int(weight.shape[1])
+
+        for key, weight in state.items():
+            if key.endswith("adapt.0.weight") and isinstance(weight, torch.Tensor) and weight.ndim == 2:
+                return int(weight.shape[1])
+        return None
+
+    def _resolve_joint_hist_steps(self) -> list[int]:
+        cfg_steps = getattr(self.cfg_policy, "joint_hist_steps", None)
+        if cfg_steps is not None:
+            return [int(x) for x in cfg_steps]
+
+        default_steps = [0, 1, 2, 3, 4]
+        target_obs_dim = self.model_obs_dim
+        if target_obs_dim is None and self._vecnorm_loc is not None:
+            target_obs_dim = int(self._vecnorm_loc.numel())
+
+        if target_obs_dim is None:
+            return default_steps
+
+        fixed_dim = 1 + self.cmd_dim + self.wrist_dim + 3 + 3
+        prev_action_dim = self.prev_action_steps * self.action_dim
+        history_dim = target_obs_dim - fixed_dim - prev_action_dim
+        if history_dim <= 0 or history_dim % self.num_dof != 0:
+            return default_steps
+
+        history_count = history_dim // self.num_dof
+        if history_count == len(default_steps):
+            return default_steps
+
+        # Newer checkpoints in this folder use history_steps=[0,1,2,3,4,8].
+        if history_count == 6:
+            inferred_steps = [0, 1, 2, 3, 4, 8]
+        else:
+            inferred_steps = list(range(history_count))
+
+        print(
+            f"[MyCustomPolicy] Inferred joint_hist_steps={inferred_steps} "
+            f"from target obs dim {target_obs_dim}"
+        )
+        return inferred_steps
+
+    def _check_obs_dim_consistency(self) -> None:
+        dims = {"runtime_obs": self.expected_obs_dim}
+        if self.model_obs_dim is not None:
+            dims["model_obs"] = self.model_obs_dim
+        if self._vecnorm_loc is not None:
+            dims["vecnorm_loc"] = int(self._vecnorm_loc.numel())
+        if self._vecnorm_scale is not None:
+            dims["vecnorm_scale"] = int(self._vecnorm_scale.numel())
+
+        unique_dims = set(dims.values())
+        if len(unique_dims) == 1:
+            print(f"[MyCustomPolicy] Obs dim check OK: {dims}")
+            return
+
+        print(f"[MyCustomPolicy] ERROR: obs dim mismatch: {dims}")
+        print(
+            "[MyCustomPolicy] Set cfg_policy.joint_hist_steps / prev_action_steps "
+            "to match the training checkpoint."
+        )
+
     def __init__(self, cfg_policy: PolicyCfg, device: str = "cpu"):
         super().__init__(cfg_policy=cfg_policy, device=device)
 
@@ -350,6 +421,11 @@ class MyCustomPolicy(Policy):
         
         print(f"[MyCustomPolicy] Final model type: {type(self.model)}")
         print(f"[MyCustomPolicy] Model attributes: {dir(self.model)}")
+        self.model_obs_dim = self._infer_model_obs_dim()
+        if self.model_obs_dim is not None:
+            print(f"[MyCustomPolicy] Inferred model obs dim: {self.model_obs_dim}")
+        else:
+            print("[MyCustomPolicy] WARNING: could not infer model obs dim from state_dict")
 
         self.custom_param = getattr(self.cfg_policy, "custom_param", 1.0)
 
@@ -432,9 +508,9 @@ class MyCustomPolicy(Policy):
 
         # -------- history config (match training) --------
         # 注意：这里必须与训练配置完全一致！
-        self.joint_hist_steps = [0, 1, 2, 3, 4]
+        self.prev_action_steps = int(getattr(self.cfg_policy, "prev_action_steps", 3))
+        self.joint_hist_steps = self._resolve_joint_hist_steps()
         self.max_joint_hist = max(self.joint_hist_steps)
-        self.prev_action_steps = 3
         
         # 计算预期的观测维度
         expected_joint_hist_dim = len(self.joint_hist_steps) * self.num_dof
@@ -448,6 +524,8 @@ class MyCustomPolicy(Policy):
             expected_joint_hist_dim +  # joint_pos_history
             expected_prev_action_dim  # prev_actions
         )
+        self.expected_obs_dim = expected_total_dim
+        self._check_obs_dim_consistency()
         
         # boot indicator (optional, match training behavior if any)
         self.boot_max = float(getattr(self.cfg_policy, "boot_max", 25))

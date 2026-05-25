@@ -35,3 +35,24 @@ python scripts/test_custom_policy.py -c g1_my_rl
 ```
 
 This checks config loading, model loading, observation generation, and action inference for the custom policy.
+
+## Export Policy
+
+Export deployment files from `assets/models/g1/my_custom/checkpoint_final.pt`:
+
+```bash
+python scripts/export_policy_vecnorm_from_checkpoint.py
+```
+
+By default this writes `policy.pt` and `vecnorm_params.pt`. Use a suffix to write matching named files:
+
+```bash
+python scripts/export_policy_vecnorm_from_checkpoint.py --gt
+python scripts/export_policy_vecnorm_from_checkpoint.py --policy-suffix new
+```
+
+These produce `policy_gt.pt` / `vecnorm_params_gt.pt` and `policy_new.pt` / `vecnorm_params_new.pt`. For a new policy without comparing against existing ground-truth files:
+
+```bash
+python scripts/export_policy_vecnorm_from_checkpoint.py --policy-suffix new --skip-gt-check
+```

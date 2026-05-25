@@ -163,12 +163,26 @@ class G1MyCustomPolicyCfg(PolicyCfg):
     
     # Policy 类型（必须与 @policy_registry.register 的类名一致）
     policy_type: str = "MyCustomPolicy"
+    policy_suffix: str | None = None
+
+    def _model_suffix(self) -> str:
+        if not self.policy_suffix:
+            return ""
+        suffix = str(self.policy_suffix).strip()
+        if not suffix:
+            return ""
+        return suffix if suffix.startswith("_") else f"_{suffix}"
     
     # 模型文件路径 - 使用 @property 而不是直接定义
     @property
     def policy_file(self) -> str:
         """模型文件路径"""
-        return "assets/models/g1/my_custom/policy.pt"
+        return f"assets/models/g1/my_custom/policy{self._model_suffix()}.pt"
+
+    @property
+    def vecnorm_file(self) -> str:
+        """VecNorm 参数文件路径"""
+        return f"assets/models/g1/my_custom/vecnorm_params{self._model_suffix()}.pt"
     
     # ========== 频率设置 ==========
     
@@ -225,6 +239,13 @@ class G1MyCustomPolicyCfg(PolicyCfg):
     # 更低的值 = 更多平滑（响应慢但更稳定）
     # 公式：output = (1-beta) * last_action + beta * new_action
     action_beta: float = 0.9  # 匹配训练时的 alpha 参数
+
+    # Observation history layout.
+    # Older 257-dim policies use [0, 1, 2, 3, 4].
+    # Newer 286-dim policies from checkpoint_final.pt use [0, 1, 2, 3, 4, 8].
+    # Leave as None to let MyCustomPolicy infer from policy/vecnorm dimensions.
+    joint_hist_steps: list[int] | None = None
+    prev_action_steps: int = 3
 
     # ========== Communication Delay (等效 Isaac 子步延迟) ==========
     # 是否启用通信延迟模拟
