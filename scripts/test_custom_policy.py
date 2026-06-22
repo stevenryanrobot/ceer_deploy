@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-验证自定义 Policy 配置的测试脚本
+Test script for validating a custom policy configuration
 
-使用方法：
+Usage:
     python scripts/test_custom_policy.py --config g1_my_rl
 """
 
@@ -18,13 +18,13 @@ import numpy as np
 
 
 def test_policy_config(config_name: str):
-    """测试 policy 配置是否正确"""
+    """Test whether the policy configuration is correct"""
     
     print("=" * 60)
     print(f"Testing Policy Configuration: {config_name}")
     print("=" * 60)
     
-    # 1. 测试配置加载
+    # 1. Test configuration loading
     print("\n[1/6] Loading configuration...")
     try:
         from robojudo.config.config_manager import ConfigManager
@@ -37,7 +37,7 @@ def test_policy_config(config_name: str):
         print(f"✗ Failed to load configuration: {e}")
         return False
     
-    # 2. 测试 Policy 类是否可导入
+    # 2. Test whether the policy class can be imported
     print("\n[2/6] Checking policy class...")
     try:
         import robojudo.policy
@@ -52,7 +52,7 @@ def test_policy_config(config_name: str):
         print(f"✗ Failed to import policy: {e}")
         return False
     
-    # 3. 测试模型文件是否存在
+    # 3. Test whether the model file exists
     print("\n[3/6] Checking model file...")
     model_path = Path(cfg.policy.policy_file)
     if not model_path.exists():
@@ -62,7 +62,7 @@ def test_policy_config(config_name: str):
     print(f"✓ Model file exists: {cfg.policy.policy_file}")
     print(f"  File size: {model_path.stat().st_size / 1024 / 1024:.2f} MB")
     
-    # 4. 测试 Policy 初始化
+    # 4. Test policy initialization
     print("\n[4/6] Initializing policy...")
     try:
         policy = policy_class(cfg_policy=cfg.policy, device="cpu")
@@ -77,10 +77,10 @@ def test_policy_config(config_name: str):
         traceback.print_exc()
         return False
     
-    # 5. 测试观测空间
+    # 5. Test the observation space
     print("\n[5/6] Testing observation space...")
     try:
-        # 创建模拟的环境数据
+        # Create mock environment data
         class MockEnvData:
             def __init__(self, num_dofs):
                 self.base_pos = np.array([0.0, 0.0, 0.79], dtype=np.float32)
@@ -93,14 +93,14 @@ def test_policy_config(config_name: str):
                 self.imu_gyro = np.zeros(3)
         
         env_data = MockEnvData(policy.num_dofs)
-        ctrl_data = {}  # 空控制数据
+        ctrl_data = {}  # empty control data
         
         obs, info = policy.get_observation(env_data, ctrl_data)
         print("✓ Observation generated successfully")
         print(f"  - Observation shape: {obs.shape}")
         print(f"  - Observation range: [{obs.min():.3f}, {obs.max():.3f}]")
         
-        # 检查是否有 NaN 或 Inf
+        # Check for NaN or Inf values
         if np.isnan(obs).any():
             print("  ⚠ Warning: Observation contains NaN values")
         if np.isinf(obs).any():
@@ -111,7 +111,7 @@ def test_policy_config(config_name: str):
         traceback.print_exc()
         return False
     
-    # 6. 测试动作推理
+    # 6. Test action inference
     print("\n[6/6] Testing action inference...")
     try:
         action = policy.get_action(obs)
@@ -121,7 +121,7 @@ def test_policy_config(config_name: str):
         print(f"  - Action mean: {action.mean():.3f}")
         print(f"  - Action std: {action.std():.3f}")
         
-        # 检查动作是否合理
+        # Check whether the action is reasonable
         if np.abs(action).max() > 100:
             print("  ⚠ Warning: Actions seem very large (> 100)")
         if np.isnan(action).any():
@@ -136,7 +136,7 @@ def test_policy_config(config_name: str):
         traceback.print_exc()
         return False
     
-    # 总结
+    # Summary
     print("\n" + "=" * 60)
     print("✓ All tests passed!")
     print("=" * 60)

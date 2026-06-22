@@ -1,13 +1,13 @@
 """
-自定义 Policy 模板
-复制此文件并修改以创建你自己的 policy
+Custom Policy template
+Copy this file and modify it to create your own policy
 
-使用步骤：
-1. 将此文件复制为你的 policy 名称，例如 my_rl_policy.py
-2. 修改类名和 @policy_registry.register 装饰器
-3. 实现 get_observation 方法以匹配你的训练观测空间
-4. 创建对应的 config 文件
-5. 在 __init__.py 中导入
+Steps:
+1. Copy this file to your policy name, e.g. my_rl_policy.py
+2. Modify the class name and the @policy_registry.register decorator
+3. Implement the get_observation method to match your training observation space
+4. Create the corresponding config file
+5. Import it in __init__.py
 """
 
 import json
@@ -366,24 +366,24 @@ class MyCustomPolicy(Policy):
     def __init__(self, cfg_policy: PolicyCfg, device: str = "cpu"):
         super().__init__(cfg_policy=cfg_policy, device=device)
 
-        # 手动加载模型（支持非 TorchScript 格式）
+        # Manually load the model (supports non-TorchScript formats)
         if not self.cfg_policy.disable_autoload:
-            # 如果没有禁用自动加载，但模型已经被基类加载了
+            # If autoload is not disabled, the model has already been loaded by the base class
             pass
         else:
-            # 手动加载模型
+            # Manually load the model
             policy_file = self.cfg_policy.policy_file
             print(f"[MyCustomPolicy] Loading model from {policy_file}...")
             try:
-                # 尝试 TorchScript 格式
+                # Try TorchScript format
                 self.model = torch.jit.load(policy_file, map_location=self.device)
                 self.model.eval()
                 print(f"[MyCustomPolicy] Loaded as TorchScript model")
             except Exception as e:
-                # 如果失败，尝试普通 checkpoint
+                # If that fails, try a plain checkpoint
                 print(f"[MyCustomPolicy] TorchScript load failed, trying checkpoint: {e}")
-                
-                # 尝试加载，如果遇到缺失的模块，给出提示
+
+                # Try to load; if a module is missing, give a hint
                 try:
                     checkpoint = torch.load(policy_file, map_location=self.device, weights_only=False)
                 except ModuleNotFoundError as module_err:
@@ -397,12 +397,12 @@ class MyCustomPolicy(Policy):
                 
                 if isinstance(checkpoint, dict):
                     print(f"[MyCustomPolicy] Checkpoint keys: {checkpoint.keys()}")
-                    # 尝试常见的 key 名称
+                    # Try common key names
                     if 'model' in checkpoint:
                         self.model = checkpoint['model']
                         print(f"[MyCustomPolicy] Loaded model from checkpoint['model']")
                     elif 'model_state_dict' in checkpoint:
-                        # 需要先定义模型架构，然后加载 state_dict
+                        # Need to define the model architecture first, then load the state_dict
                         print(f"[MyCustomPolicy] Found model_state_dict, but need model architecture to load")
                         # self.model = YourModelClass(...)
                         # self.model.load_state_dict(checkpoint['model_state_dict'])
@@ -414,7 +414,7 @@ class MyCustomPolicy(Policy):
                         print(f"[MyCustomPolicy] Unknown checkpoint format, using as-is")
                         self.model = checkpoint
                 else:
-                    # checkpoint 本身就是模型
+                    # The checkpoint is the model itself
                     print(f"[MyCustomPolicy] Checkpoint is model directly")
                     self.model = checkpoint
                 
@@ -508,12 +508,12 @@ class MyCustomPolicy(Policy):
         # print(f"  wrist_dim: {self.wrist_dim}")
 
         # -------- history config (match training) --------
-        # 注意：这里必须与训练配置完全一致！
+        # Note: this must exactly match the training configuration!
         self.prev_action_steps = int(getattr(self.cfg_policy, "prev_action_steps", 3))
         self.joint_hist_steps = self._resolve_joint_hist_steps()
         self.max_joint_hist = max(self.joint_hist_steps)
         
-        # 计算预期的观测维度
+        # Compute the expected observation dimension
         expected_joint_hist_dim = len(self.joint_hist_steps) * self.num_dof
         expected_prev_action_dim = self.prev_action_steps * self.action_dim
         expected_total_dim = (
@@ -603,12 +603,12 @@ class MyCustomPolicy(Policy):
         self._dof_adapter = DoFAdapter(env_joint_order, policy_joint_order)
         print(f"[MyCustomPolicy] Created DoFAdapter: {len(env_joint_order)} env joints -> {len(policy_joint_order)} policy joints")
 
-        # -------- Alpha Jitter (随机化 EMA 平滑系数) --------
+        # -------- Alpha Jitter (randomize the EMA smoothing coefficient) --------
         self.alpha_jit_scale = getattr(self.cfg_policy, "alpha_jit_scale", None)
         self.alpha_wide_range = getattr(self.cfg_policy, "alpha_wide_range", (0.0, 1.0))
 
         if self.alpha_jit_scale is not None:
-            # 初始化 jitter tensor（每次 get_action 时会重新采样）
+            # Initialize the jitter tensor (resampled on every get_action call)
             self.alpha_jit = torch.zeros(1, device=self.device, dtype=torch.float32)
             print(f"[MyCustomPolicy] Alpha jitter enabled: scale={self.alpha_jit_scale}, range={self.alpha_wide_range}")
         else:
@@ -653,7 +653,7 @@ class MyCustomPolicy(Policy):
         self._prev_actions = torch.zeros((A, N, self.action_dim), device=self.device, dtype=torch.float32)
         self._history_initialized = False
 
-        # 注意：base class 里可能把 last_action 当 numpy；这里统一用 torch 存，再转 numpy 输出
+        # Note: the base class may treat last_action as numpy; here we consistently store it as torch and convert to numpy on output
         self.last_action = torch.zeros((N, self.action_dim), device=self.device, dtype=torch.float32)
         
         # Store raw network output (clamped) for prev_actions history (to match training)
@@ -673,7 +673,7 @@ class MyCustomPolicy(Policy):
 
     def post_step_callback(self, commands=None):
         self.timestep += 1
-        # 你也可以在这里做 logging
+        # You can also do logging here
 
     def debug_viz(self, visualizer, env_data, ctrl_data, extras):
         # get_observation nests the UDP extras under the "udp" key; fall back to
@@ -1018,7 +1018,7 @@ class MyCustomPolicy(Policy):
         self._broadcast_env_state(env_data)
         root_cmd7, udp_cmd3, ee12, extra = self._get_udp_control()
 
-        # ====== 构建 6 维 command ======
+        # ====== Build the 6-dim command ======
         # Output format (6 dimensions, matches training):
         #   - root_height: [N, 1] - current frame root height
         #   - target_linvel_b: [N, 2] - target xy linear velocity in body frame
@@ -1031,7 +1031,7 @@ class MyCustomPolicy(Policy):
             base_pos = base_pos.unsqueeze(0)  # [1, 3]
         root_height = torch.full((N, 1), 0.79, device=self.device, dtype=torch.float32)  # [N, 1] - fixed height
         
-        # 2) target_linvel_b - 从 udp_cmd3 获取 vx, vy (已经是 body frame)
+        # 2) target_linvel_b - get vx, vy from udp_cmd3 (already in body frame)
         target_linvel_b = root_cmd7[:, 0:2]
 
         # use target yaw from UDP root_command (already wxyz in root_cmd7[:, 3:7])
@@ -1058,10 +1058,10 @@ class MyCustomPolicy(Policy):
         target_heading_b = quat_apply_inverse(current_yaw_quat, target_heading_w)  # [N, 3]
         target_heading_b_xy = target_heading_b[:, :2]  # [N, 2]
         
-        # 4) force_safe_limit - 默认值（可以从 cfg 读取）
+        # 4) force_safe_limit - default value (can be read from cfg)
         force_safe_limit = torch.full((N, 1), 15.0, device=self.device, dtype=torch.float32)
         
-        # 拼接成 6 维 command
+        # Concatenate into the 6-dim command
         command = torch.cat([
             root_height,         # [N, 1]
             target_linvel_b,     # [N, 2]
@@ -1102,11 +1102,11 @@ class MyCustomPolicy(Policy):
         # print(f'command: {command[0].cpu().numpy()}')
         # 7) concat in exact order
         obs = torch.cat([
-            boot,                 # [N,1] 没问题
-            command,              # [N,cmd_dim] 没问题
-            root_and_wrist_6d,    # [N,wrist_dim] 没问题
-            base_ang_vel,         # [N,3] 没问题
-            projected_gravity,    # [N,3] 没问题
+            boot,                 # [N,1] OK
+            command,              # [N,cmd_dim] OK
+            root_and_wrist_6d,    # [N,wrist_dim] OK
+            base_ang_vel,         # [N,3] OK
+            projected_gravity,    # [N,3] OK
             joint_pos_history,    # [N,len(steps)*D]
             prev_actions,         # [N,3*action_dim]
         ], dim=-1)
@@ -1215,9 +1215,9 @@ class MyCustomPolicy(Policy):
 # 0.0000e+00,  0.0000e+00"""
         # obs_raw = np.fromstring(test_raw_str, sep=',', dtype=np.float32)
         # ---- normalize obs_raw ----
-        # 使用与 torchrl ObservationNorm._apply_transform() 相同的归一化方式
-        # 当 standard_normal=True 时: (obs - loc) / scale
-        # 用 torch tensor 计算以保持精度一致
+        # Use the same normalization as torchrl ObservationNorm._apply_transform()
+        # When standard_normal=True: (obs - loc) / scale
+        # Compute with torch tensors to keep precision consistent
         if self._vecnorm_loc is not None and self._vecnorm_scale is not None:
             obs_raw_t = torch.from_numpy(obs_raw)
             obs_norm_t = (obs_raw_t - self._vecnorm_loc) / self._vecnorm_scale
