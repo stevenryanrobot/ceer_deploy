@@ -28,6 +28,48 @@ Equivalent explicit form:
 python scripts/run_pipeline.py -c g1_my_rl
 ```
 
+## Teleoperation (keyboard)
+
+Drive the robot from the keyboard with `scripts/teleop_dummy_pub.py`. It publishes
+target poses (root, head, left hand, right hand) over UDP to the running pipeline.
+
+Use **two terminals** (both with the `robojudo` env active):
+
+```bash
+# Terminal 1 — start the simulator/policy (the UDP receiver, listens on port 15000)
+python scripts/run_pipeline.py
+
+# Terminal 2 — start the keyboard teleop publisher
+python scripts/teleop_dummy_pub.py
+```
+
+By default it sends to `127.0.0.1:15000` at `30 Hz`, matching the pipeline. Options:
+
+```bash
+python scripts/teleop_dummy_pub.py --dst_ip 127.0.0.1 --dst_port 15000 --hz 30
+python scripts/teleop_dummy_pub.py -r        # also record camera + commands to dataset/episodes/
+```
+
+Keep terminal 2 **focused** while controlling (it reads raw keystrokes):
+
+| Keys | Action |
+| --- | --- |
+| `W` / `S` | Root **speed** forward / back (each press ±0.2 m/s, persists after release) |
+| `A` / `D` | Root **speed** left / right (each press ±0.2 m/s, persists after release) |
+| `SPACE` | Stop — zero the root speed |
+| `F` / `H` | Move root up / down (Z +/−) |
+| `Q` / `E` | Rotate root yaw left / right (10° per press) |
+| `I` / `K` | Both hands along X (+/−) |
+| `J` / `L` | Both hands along Y (apart / together) |
+| `U` / `O` | Both hands along Z (+/−) |
+| `ESC` or `Ctrl+C` | Quit |
+
+Root motion is **velocity-based**: each `W`/`S`/`A`/`D` press adds to the root speed,
+which keeps the robot moving until you change it (press the opposite key or `SPACE`).
+In the viewer, the yellow root arrow appears only while the root is moving — it points
+in the movement direction and grows longer with speed. The RGB axes show the root and
+both end-effector target poses, and sent commands are logged to `logs/signal_send/`.
+
 ## Smoke Test
 
 ```bash

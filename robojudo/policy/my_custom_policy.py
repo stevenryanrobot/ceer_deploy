@@ -18,6 +18,7 @@ import os
 from robojudo.policy import Policy, policy_registry
 from robojudo.policy.policy_cfgs import PolicyCfg
 from robojudo.utils.util_func import get_gravity_orientation, my_quat_rotate_np
+from scipy.spatial.transform import Rotation as sRot
 from robojudo.tools.dof import DoFAdapter
 
 from collections import deque
@@ -675,12 +676,19 @@ class MyCustomPolicy(Policy):
         # 你也可以在这里做 logging
 
     def debug_viz(self, visualizer, env_data, ctrl_data, extras):
+        # get_observation nests the UDP extras under the "udp" key; fall back to
+        # the top level in case debug_viz is ever called with the flat dict.
+        if isinstance(extras, dict) and "udp" in extras and isinstance(extras["udp"], dict):
+            extras = extras["udp"]
+
         if not extras.get("udp_valid", False):
             return
 
         root_quat_xyzw = extras.get("viz_root_target_yaw_xyzw")
         left_ee_pos = extras.get("viz_left_ee_target_pos_b")
         right_ee_pos = extras.get("viz_right_ee_target_pos_b")
+        left_ee_quat_b = extras.get("viz_left_ee_target_quat_b")
+        right_ee_quat_b = extras.get("viz_right_ee_target_quat_b")
         root_speed_xy = extras.get("viz_root_target_speed_xy")
 
         if root_quat_xyzw is None:
@@ -716,8 +724,17 @@ class MyCustomPolicy(Policy):
         if right_ee_pos is not None and np.all(np.isfinite(right_ee_pos)):
             right_ee_pos = root_pos + my_quat_rotate_np(base_quat_xyzw, right_ee_pos)
 
-        speed = float(np.linalg.norm(root_speed_xy))
-        arrow_len = float(np.clip(max(speed, 0.25), 0.25, 0.6))
+        # Yellow arrow = the *commanded* root velocity from the keyboard
+        # (world frame). The estimate is bursty (one spike per keypress), so
+        # smooth it with an EMA: the arrow stays steady while you hold a key and
+        # clears shortly after you release. A faster command => longer arrow.
+        vel_xy = np.asarray(root_speed_xy, dtype=np.float32).reshape(2)
+        ema = getattr(self, "_viz_vel_ema", None)
+        if ema is None or not np.all(np.isfinite(ema)):
+            ema = np.zeros(2, dtype=np.float32)
+        ema = (0.6 * ema + 0.4 * vel_xy).astype(np.float32)
+        self._viz_vel_ema = ema
+        speed = float(np.linalg.norm(ema))
 
         visualizer.set_mocap_pose("viz_root_target", root_marker_pos)
         if left_ee_pos is not None and np.all(np.isfinite(left_ee_pos)):
@@ -729,8 +746,46 @@ class MyCustomPolicy(Policy):
         else:
             visualizer.hide_mocap("viz_right_ee_target")
 
-        visualizer.set_mocap_pose("viz_root_dir", root_marker_pos, quat_xyzw=root_quat_xyzw)
-        visualizer.set_arrow_length("viz_root_dir_shaft", "viz_root_dir_tip", arrow_len)
+        # The arrow only appears while you are driving the root from the keyboard
+        # (commanded speed > 0); it points along the command direction (flipping
+        # to the back when moving backward) and its length grows with speed.
+        # When you stop commanding, the speed decays to ~0 and the arrow hides.
+        VEL_EPS = 0.05
+        if speed > VEL_EPS:
+            dir_yaw = float(np.arctan2(ema[1], ema[0]))
+            dir_quat_xyzw = np.array(
+                [0.0, 0.0, np.sin(0.5 * dir_yaw), np.cos(0.5 * dir_yaw)], dtype=np.float32
+            )
+            arrow_len = float(np.clip(0.2 + 0.14 * speed, 0.2, 0.8))
+            visualizer.set_mocap_pose("viz_root_dir", root_marker_pos, quat_xyzw=dir_quat_xyzw)
+            visualizer.set_arrow_length("viz_root_dir_shaft", "viz_root_dir_tip", arrow_len)
+        else:
+            visualizer.hide_mocap("viz_root_dir")
+
+        # -------- coordinate-frame axes (X=red, Y=green, Z=blue) --------
+        # Root frame: just above the base (same spot as the root sphere/arrow,
+        # so it is not buried inside the pelvis) + target yaw orientation.
+        visualizer.set_mocap_pose("viz_root_frame", root_marker_pos, quat_xyzw=root_quat_xyzw)
+
+        # EE frames: world position (already computed above) + orientation.
+        # EE quats from UDP are root-relative, so compose with the robot base
+        # orientation to get the world-frame EE orientation.
+        base_rot = sRot.from_quat(base_quat_xyzw)
+        self._set_ee_frame(visualizer, "viz_left_ee_frame", left_ee_pos, left_ee_quat_b, base_rot)
+        self._set_ee_frame(visualizer, "viz_right_ee_frame", right_ee_pos, right_ee_quat_b, base_rot)
+
+    @staticmethod
+    def _set_ee_frame(visualizer, body_name, ee_pos_world, ee_quat_b, base_rot):
+        if ee_pos_world is None or not np.all(np.isfinite(ee_pos_world)):
+            visualizer.hide_mocap(body_name)
+            return
+        if ee_quat_b is not None and np.all(np.isfinite(ee_quat_b)):
+            ee_quat_b = np.asarray(ee_quat_b, dtype=np.float32)
+            ee_quat_b = ee_quat_b / (np.linalg.norm(ee_quat_b) + 1e-8)
+            world_quat_xyzw = (base_rot * sRot.from_quat(ee_quat_b)).as_quat()  # xyzw
+        else:
+            world_quat_xyzw = base_rot.as_quat()
+        visualizer.set_mocap_pose(body_name, ee_pos_world, quat_xyzw=world_quat_xyzw)
 
     # -------------------------
     # UDP control hook
@@ -836,6 +891,9 @@ class MyCustomPolicy(Policy):
         extra["viz_root_target_yaw_xyzw"] = target_yaw_quat_xyzw.detach().cpu().numpy()
         extra["viz_left_ee_target_pos_b"] = l_pos_b.detach().cpu().numpy()
         extra["viz_right_ee_target_pos_b"] = r_pos_b.detach().cpu().numpy()
+        # EE orientations are root-relative (body frame), xyzw
+        extra["viz_left_ee_target_quat_b"] = l_quat_b.detach().cpu().numpy()
+        extra["viz_right_ee_target_quat_b"] = r_quat_b.detach().cpu().numpy()
         extra["viz_root_target_speed_xy"] = udp_command[0, :2].detach().cpu().numpy()
 
         # debug print
