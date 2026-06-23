@@ -9,7 +9,35 @@ This repository has been reduced to the minimum sim2sim path for the custom G1 p
 
 ## Environment
 
-Use the existing conda environment:
+### First-time setup
+
+Create a Python 3.11 conda environment and install the dependencies:
+
+```bash
+conda create -n robojudo python=3.11 -y
+conda activate robojudo
+
+# Python dependencies (torch, mujoco, scipy, onnxruntime, ...)
+pip install -r requirements.txt
+```
+
+**GPU note:** the default PyPI `torch` wheel may be built for a newer CUDA than
+your NVIDIA driver supports, in which case `torch.cuda.is_available()` returns
+`False`. Reinstall a build that matches your driver — e.g. for a driver that
+supports CUDA 12.6:
+
+```bash
+pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu126
+# verify:
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+(The MuJoCo viewer is vendored in `third_party/mujoco_viewer` and added to the
+path automatically — no separate install needed.)
+
+### Each session
+
+Activate the conda environment:
 
 ```bash
 source /Users/luoxinyuan/miniforge3/etc/profile.d/conda.sh
