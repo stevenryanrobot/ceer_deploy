@@ -1,5 +1,7 @@
 # RoboJuDo Minimal
 
+![Demo](assets/demo.gif)
+
 This repository has been reduced to the minimum sim2sim path for the custom G1 policy:
 
 - config: `g1_my_rl`
