@@ -1,4 +1,4 @@
-# RoboJuDo Minimal
+# ceer_demo
 
 ![Demo](assets/demo.gif)
 
@@ -16,8 +16,8 @@ This repository has been reduced to the minimum sim2sim path for the custom G1 p
 Create a Python 3.11 conda environment and install the dependencies:
 
 ```bash
-conda create -n robojudo python=3.11 -y
-conda activate robojudo
+conda create -n ceer_deploy python=3.11 -y
+conda activate ceer_deploy
 
 # Python dependencies (torch, mujoco, scipy, onnxruntime, ...)
 pip install -r requirements.txt
@@ -42,17 +42,11 @@ path automatically — no separate install needed.)
 Activate the conda environment:
 
 ```bash
-source /Users/luoxinyuan/miniforge3/etc/profile.d/conda.sh
-conda activate robojudo
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate ceer_deploy
 ```
 
 ## Run
-
-```bash
-python scripts/run_pipeline.py
-```
-
-Equivalent explicit form:
 
 ```bash
 python scripts/run_pipeline.py -c g1_my_rl
@@ -63,7 +57,7 @@ python scripts/run_pipeline.py -c g1_my_rl
 Drive the robot from the keyboard with `scripts/teleop_dummy_pub.py`. It publishes
 target poses (root, head, left hand, right hand) over UDP to the running pipeline.
 
-Use **two terminals** (both with the `robojudo` env active):
+Use **two terminals** (both with the `ceer_deploy` env active):
 
 ```bash
 # Terminal 1 — start the simulator/policy (the UDP receiver, listens on port 15000)
@@ -99,14 +93,6 @@ which keeps the robot moving until you change it (press the opposite key or `SPA
 In the viewer, the yellow root arrow appears only while the root is moving — it points
 in the movement direction and grows longer with speed. The RGB axes show the root and
 both end-effector target poses, and sent commands are logged to `logs/signal_send/`.
-
-## Smoke Test
-
-```bash
-python scripts/test_custom_policy.py -c g1_my_rl
-```
-
-This checks config loading, model loading, observation generation, and action inference for the custom policy.
 
 ## Export Policy
 
